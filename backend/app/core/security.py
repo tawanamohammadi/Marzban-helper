@@ -13,6 +13,10 @@ def verify_password(plain_password, hashed_password):
     return PWD_CONTEXT.verify(plain_password, hashed_password)
 
 def get_password_hash(password):
+    # Truncate password to avoid bcrypt max length (72 bytes) issue
+    # This is a safe truncation as 72 bytes is very long.
+    if isinstance(password, str):
+        password = password.encode('utf-8')[:72]
     return PWD_CONTEXT.hash(password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
