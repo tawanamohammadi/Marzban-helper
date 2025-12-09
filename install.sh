@@ -1,19 +1,32 @@
 #!/bin/bash
 
-# Marzban Auxiliary Panel - Installation Script
+# Marzban Auxiliary Panel - Installation Script V1.2
 echo "============================================"
-echo "   Marzban Auxiliary Panel Installer V1.1   "
+echo "   Marzban Auxiliary Panel Installer V1.2   "
 echo "============================================"
 
-# 1. Check Dependencies
+# 1. Dependency Check with Auto-Fix
 echo "[*] Checking dependencies..."
 if ! command -v python3 &> /dev/null; then
-    echo "Python3 could not be found. Please install it."
+    echo "Python3 could not be found. Please install it (apt install python3)."
     exit 1
 fi
-if ! command -v npm &> /dev/null; then
-    echo "npm/node could not be found. Please install Node.js 18+."
-    exit 1
+
+# Check for venv explicitly
+echo "[*] Checking for python3-venv..."
+python3 -m venv test_env 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "❌ Python venv module missing."
+    echo "   Attempting to install 'python3-venv'..."
+    if command -v apt &> /dev/null; then
+        sudo apt update && sudo apt install -y python3-venv python3-pip
+    else
+        echo "   Could not auto-install. Please run: apt install python3-venv"
+        exit 1
+    fi
+else
+    rm -rf test_env
+    echo "✅ Python venv is available."
 fi
 
 # 2. Configuration
@@ -22,14 +35,8 @@ echo "[?] We need to connect to your Marzban instance."
 read -p "Marzban Username: " MARZBAN_USER
 read -s -p "Marzban Password: " MARZBAN_PASS
 echo ""
-# Ask for Port/Domain - Default to local 8000
-echo -e "\n[?] Enter Marzban Address (Usually http://127.0.0.1:8000 if local)."
-echo "    If you changed the port or are using SSL, enter full URL."
-echo "    Example: https://tawanaproxy.panbehpanel.ir:2096"
 read -p "Marzban URL [default: http://127.0.0.1:8000]: " MARZBAN_URL
 MARZBAN_URL=${MARZBAN_URL:-http://127.0.0.1:8000}
-
-# Remove trailing slash
 MARZBAN_URL=${MARZBAN_URL%/}
 
 echo ""
@@ -37,45 +44,48 @@ echo ""
 # 3. Setup Backend
 echo "[*] Setting up Backend..."
 cd backend
+# Always create fresh venv
+rm -rf venv
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
 
-# Fetch Token Automatically using a tempoary script
-echo "[*] Connecting to $MARZBAN_URL to fetch token..."
+# Use pip from venv explicitly
+./venv/bin/pip install -r requirements.txt
+./venv/bin/pip install python-dotenv
+
+# Fetch Token
+echo "[*] Fetching Marzban Token..."
 cat <<EOF > get_token.py
 import requests
 import sys
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 try:
     resp = requests.post(
         "${MARZBAN_URL}/api/admin/token", 
         data={"username": "${MARZBAN_USER}", "password": "${MARZBAN_PASS}", "grant_type": "password"},
         headers={"Content-Type": "application/x-www-form-urlencoded"},
+        verify=False,
         timeout=10
     )
     if resp.status_code == 200:
         print(resp.json()["access_token"])
     else:
-        print("ERROR_STATUS_" + str(resp.status_code))
-        print(resp.text)
-except Exception as e:
-    print("ERROR_CONN")
-    print(str(e))
+        print("ERROR")
+except:
+    print("ERROR")
 EOF
 
-# Capture Output
-OUTPUT=$(python3 get_token.py)
-TOKEN=$(echo "$OUTPUT" | head -n 1) # First line is token or error
+TOKEN=$(./venv/bin/python3 get_token.py)
+rm get_token.py
 
-# Basic Error Handling
 if [[ "$TOKEN" == *"ERROR"* ]]; then
-    echo "❌ Failed to login to Marzban at $MARZBAN_URL"
-    echo "   Details: $OUTPUT"
-    echo "   Please check URL, Port, and Credentials."
-    exit 1
+    # Create .env anyway to allow manual fix later, but warn user
+    echo "⚠️  Could not fetch token automatically. You may need to edit backend/.env manually."
+    TOKEN="manual_update_required"
 else
-    echo "✅ Login Successful! Token acquired."
+    echo "✅ Token acquired."
 fi
 
 # Create .env
@@ -88,10 +98,22 @@ MARZBAN_SUDO_TOKEN=$TOKEN
 DATABASE_URL=sqlite:///./auxiliary_panel.db
 EOF
 
-# Create Admin in Local DB (Mirroring the Marzban Admin)
-echo "[*] Initializing Database..."
-python3 create_admin.py "$MARZBAN_USER" "$MARZBAN_PASS"
-deactivate
+# Initialize Database Explicitly BEFORE creating admin
+echo "[*] Initializing Database Tables..."
+cat <<EOF > init_db.py
+from app.core.database import engine, Base
+from app.models import reseller, user_map
+Base.metadata.create_all(bind=engine)
+print("Tables Created.")
+EOF
+./venv/bin/python3 init_db.py
+rm init_db.py
+
+# Create Admin
+echo "[*] Creating Local Admin..."
+./venv/bin/python3 create_admin.py "$MARZBAN_USER" "$MARZBAN_PASS"
+
+# Fix permission/path issue by not using 'deactivate'
 cd ..
 
 # 4. Setup Frontend
@@ -99,6 +121,8 @@ echo ""
 echo "[*] Setting up Frontend..."
 cd frontend
 npm install
+echo "[*] Building Next.js Frontend (This may take a minute)..."
+npm run build
 cd ..
 
 echo ""
