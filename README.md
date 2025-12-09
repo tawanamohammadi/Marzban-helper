@@ -1,5 +1,5 @@
-# Marzban Auxiliary Panel (Marzban Companion)
-# پنل کمکی مرزبان (Marzban Companion)
+# Marzban Helper (Marzban Auxiliary Panel)
+# پنل کمکی مرزبان (Marzban Helper)
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Version](https://img.shields.io/badge/version-1.0.0-green)
@@ -45,8 +45,8 @@ An advanced companion panel for Marzban, designed to add **Reseller Management**
 ### Quick Start (Linux)
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/YOUR_USERNAME/marzban-companion.git
-   cd marzban-companion
+   git clone https://github.com/tawanamohammadi/Marzban-helper.git
+   cd Marzban-helper
    ```
 
 2. **Run Installer:**
